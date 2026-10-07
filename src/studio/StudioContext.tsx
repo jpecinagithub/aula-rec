@@ -158,7 +158,19 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   // — Grabación / resultado —
   const [recordedMs, setRecordedMs] = useState(0);
-  const recordedMsRef = useRef(0);
+  /** ms grabados en segmentos ya cerrados (pausas). */
+  const recBaseMsRef = useRef(0);
+  /** Date.now() del inicio del segmento actual (0 si no está grabando ahora). */
+  const recSegStartRef = useRef(0);
+  /**
+   * ms realmente grabados hasta ahora, con reloj de pared.
+   * A diferencia de acumular ticks de setInterval, no se ve afectado por el
+   * throttling que Chrome aplica a las pestañas ocultas.
+   */
+  const recordedSoFar = useCallback((): number => {
+    const seg = recSegStartRef.current;
+    return seg > 0 ? recBaseMsRef.current + (Date.now() - seg) : recBaseMsRef.current;
+  }, []);
   const [meta, setMeta] = useState<RecordingMeta | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -240,8 +252,13 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
       const { w, h } = outSizeRef.current;
       const mimeType = blob.type || choiceRef.current?.mimeType || 'video/webm';
+      // Duración real con reloj de pared (el segmento actual se cierra aquí).
+      const durationMs = Math.max(0, Math.round(recordedSoFar()));
+      recSegStartRef.current = 0;
+      recBaseMsRef.current = durationMs;
+      setRecordedMs(durationMs);
       const m: RecordingMeta = {
-        durationMs: recordedMsRef.current,
+        durationMs,
         width: w,
         height: h,
         mimeType,
@@ -266,7 +283,15 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       trackEvent('recording_completed');
       setStatus('preview');
     },
-    [screen, cameraH, mic, detach, recorder, previewUrl],
+    [
+      recordedSoFar,
+      screen,
+      cameraH,
+      mic,
+      detach,
+      recorder,
+      previewUrl,
+    ],
   );
   const finishRef = useRef(finishRecording);
   finishRef.current = finishRecording;
@@ -298,14 +323,15 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   });
 
   // — Cronómetro: solo cuenta tiempo realmente grabado —
+  // Se calcula con reloj de pared para no verse afectado por el throttling
+  // de setInterval en pestañas ocultas.
   useEffect(() => {
     if (status !== 'recording') return;
     const id = window.setInterval(() => {
-      recordedMsRef.current += 250;
-      setRecordedMs(recordedMsRef.current);
+      setRecordedMs(recordedSoFar());
     }, 250);
     return () => window.clearInterval(id);
-  }, [status]);
+  }, [status, recordedSoFar]);
 
   // — Aviso al cerrar la pestaña en plena grabación —
   useEffect(() => {
@@ -511,18 +537,24 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       // Error de MediaRecorder: conservar lo grabado hasta ahora.
       void finishRef.current('recorder-error');
     });
-    recordedMsRef.current = 0;
+    recBaseMsRef.current = 0;
+    recSegStartRef.current = Date.now();
     setRecordedMs(0);
     trackEvent('recording_started');
     setStatus('recording');
   }, [compositorRef, mic, recorder, quality]);
 
   const pauseRecording = useCallback(() => {
+    // Cerrar el segmento actual con reloj de pared antes de pausar.
+    recBaseMsRef.current = recordedSoFar();
+    recSegStartRef.current = 0;
+    setRecordedMs(recBaseMsRef.current);
     recorder.pause();
     setStatus('paused');
-  }, [recorder]);
+  }, [recorder, recordedSoFar]);
 
   const resumeRecording = useCallback(() => {
+    recSegStartRef.current = Date.now();
     recorder.resume();
     setStatus('recording');
   }, [recorder]);
@@ -535,7 +567,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     detach();
     stopStream(composedStreamRef.current);
     composedStreamRef.current = null;
-    recordedMsRef.current = 0;
+    recBaseMsRef.current = 0;
+    recSegStartRef.current = 0;
     setRecordedMs(0);
     trackEvent('recording_cancelled');
     setStatus('idle');
@@ -610,7 +643,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setDownloadUrl(null);
     setMeta(null);
     setRecordedMs(0);
-    recordedMsRef.current = 0;
+    recBaseMsRef.current = 0;
+    recSegStartRef.current = 0;
     setNotice(null);
     setError(null);
     setExportProgress(null);

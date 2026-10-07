@@ -305,4 +305,25 @@ describe('flujo global de grabación', () => {
     expect(s().status).toBe('idle');
     expect(s().previewUrl).toBeNull();
   });
+
+  it('la duración usa reloj de pared: no se subestima con la pestaña oculta', async () => {
+    // Simula el throttling de Chrome en pestañas ocultas: el tiempo avanza
+    // 33s pero el intervalo del cronómetro no dispara ni una vez.
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    try {
+      const s = () => studio as StudioValue;
+      await goToRecording();
+      // 33 segundos reales sin ticks del intervalo.
+      vi.setSystemTime(1_000_000 + 33_000);
+      await act(async () => {
+        await s().finishRecording('user');
+      });
+      expect(s().status).toBe('preview');
+      // Con el cronómetro antiguo (acumular ticks) daría ~0ms.
+      expect(s().meta?.durationMs ?? 0).toBeGreaterThan(30_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
