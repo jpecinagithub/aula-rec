@@ -34,7 +34,7 @@ import type { SupportReport } from '../services/browserSupport.ts';
 
 export type ScreenMode = 'full' | 'region';
 
-interface StudioValue {
+export interface StudioValue {
   status: AppStatus;
   support: SupportReport;
   wizardStep: number;
@@ -100,7 +100,8 @@ interface StudioValue {
   setYoutubeMode: (on: boolean) => void;
   goToSetup: () => void;
   backToWizard: () => void;
-  attachCanvas: (canvas: HTMLCanvasElement) => () => void;
+  /** Canvas maestro del compositor (un único elemento, propiedad del contexto). */
+  getMasterCanvas: () => HTMLCanvasElement;
   startCountdown: () => void;
   beginRecording: () => void;
   pauseRecording: () => void;
@@ -174,6 +175,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   cameraSettingsRef.current = camera;
   const previewBlobRef = useRef<Blob | null>(null);
   const composedStreamRef = useRef<MediaStream | null>(null);
+  const masterCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const choiceRef = useRef<RecorderChoice | null>(null);
   const outSizeRef = useRef({ w: 1920, h: 1080, fps: 30 });
 
@@ -421,33 +423,44 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     [applyOutSize, patchCamera],
   );
 
+  /**
+   * Canvas maestro: UN único elemento <canvas> propiedad del contexto.
+   * React nunca lo recrea; el portal solo lo mueve entre slots para mostrarlo.
+   * Así canvas.captureStream() y el rAF nunca se interrumpen al cambiar de vista.
+   */
+  const getMasterCanvas = useCallback((): HTMLCanvasElement => {
+    if (!masterCanvasRef.current) {
+      const c = document.createElement('canvas');
+      c.className = 'composer-canvas';
+      c.setAttribute('aria-label', 'Previsualización del vídeo final');
+      masterCanvasRef.current = c;
+    }
+    return masterCanvasRef.current;
+  }, []);
+
+  /** (Re)crea el compositor sobre el canvas maestro y lo pone en marcha. */
+  const ensureCompositor = useCallback(() => {
+    const canvas = getMasterCanvas();
+    const { w, h, fps: f } = outSizeRef.current;
+    const comp = attach(canvas, { width: w, height: h, fps: f });
+    comp.attachScreen(screen.videoRef.current);
+    comp.attachCamera(cameraH.videoRef.current);
+    comp.setCrop(cropRef.current);
+    comp.setCameraSettings(cameraSettingsRef.current);
+    comp.start();
+  }, [attach, getMasterCanvas, screen, cameraH]);
+
   const goToSetup = useCallback(() => {
     setError(null);
     setNotice(null);
+    ensureCompositor();
     setStatus('setup');
-  }, []);
+  }, [ensureCompositor]);
 
   const backToWizard = useCallback(() => {
     setStatus('permissions');
     setWizardStep(2);
   }, []);
-
-  /** Monta el canvas del compositor (vía portal); devuelve limpieza. Estable. */
-  const attachCanvas = useCallback(
-    (canvas: HTMLCanvasElement) => {
-      const { w, h, fps: f } = outSizeRef.current;
-      const comp = attach(canvas, { width: w, height: h, fps: f });
-      comp.attachScreen(screen.videoRef.current);
-      comp.attachCamera(cameraH.videoRef.current);
-      comp.setCrop(cropRef.current);
-      comp.setCameraSettings(cameraSettingsRef.current);
-      comp.start();
-      return () => detach();
-    },
-    // Los <video> y los ajustes se leen por ref en el momento del montaje.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [attach, detach],
-  );
 
   const startCountdown = useCallback(() => {
     setError(null);
@@ -679,7 +692,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       setYoutubeMode,
       goToSetup,
       backToWizard,
-      attachCanvas,
+      getMasterCanvas,
       startCountdown,
       beginRecording,
       pauseRecording,
@@ -699,7 +712,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       recordedMs, meta, previewUrl, notice, error, trim, exportProgress, downloadUrl,
       downloadName, portalTarget, screen, cameraH, mic, startWizard, requestScreen, setScreenMode,
       setCrop, requestCamera, patchCamera, requestMic, skipMic, setSystemAudio, setOutSize,
-      setFps, setYoutubeMode, goToSetup, backToWizard, attachCanvas, startCountdown, beginRecording,
+      setFps, setYoutubeMode, goToSetup, backToWizard, getMasterCanvas, startCountdown, beginRecording,
       pauseRecording, resumeRecording, finishRecording, cancelRecording, applyTrim, startExport,
       downloadExport, resetAll, dismissNotice, dismissError,
     ],

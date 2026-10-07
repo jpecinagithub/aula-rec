@@ -1,24 +1,32 @@
 /**
  * @vitest-environment jsdom
  *
- * Regresión: el canvas del compositor se monta vía portal cuando aparece un
- * StageSlot DESPUÉS del primer render. El efecto de ComposerCanvas debe
- * re-ejecutarse al aparecer el slot (antes solo dependía de attachCanvas y el
- * compositor nunca se creaba → "El compositor de vídeo no está listo").
+ * El canvas maestro es propiedad del contexto (un único elemento): al hacer
+ * goToSetup el compositor se crea sobre él y ComposerCanvas lo muestra en el
+ * slot, sin que React lo recree al cambiar de vista.
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
-import { StudioProvider } from '../studio/StudioContext.tsx';
+import { StudioProvider, useStudio } from '../studio/StudioContext.tsx';
+import type { StudioValue } from '../studio/StudioContext.tsx';
 import { StageSlot } from './StageSlot.tsx';
 import { ComposerCanvas } from './ComposerCanvas.tsx';
 
+vi.mock('../lib/analytics.ts', () => ({ trackEvent: vi.fn() }));
+
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
+let studio: StudioValue | null = null;
+function Driver() {
+  studio = useStudio();
+  return null;
+}
 function Harness() {
   return (
     <StudioProvider>
+      <Driver />
       <ComposerCanvas />
       <StageSlot className="stage-slot" />
     </StudioProvider>
@@ -38,11 +46,11 @@ describe('ComposerCanvas', () => {
     }
     host?.remove();
     host = null;
+    studio = null;
     vi.restoreAllMocks();
   });
 
-  it('adjunta el compositor al canvas cuando el slot se monta', async () => {
-    // jsdom no tiene Canvas 2D: stub con no-ops.
+  it('muestra el canvas maestro configurado tras goToSetup', async () => {
     const ctxStub = new Proxy(
       {},
       {
@@ -55,6 +63,8 @@ describe('ComposerCanvas', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
       ctxStub as unknown as RenderingContext,
     );
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
 
     host = document.createElement('div');
     document.body.appendChild(host);
@@ -62,11 +72,15 @@ describe('ComposerCanvas', () => {
     await act(async () => {
       root?.render(<Harness />);
     });
+    act(() => {
+      (studio as StudioValue).goToSetup();
+    });
 
-    const canvas = host.querySelector('.stage-slot canvas');
+    const canvas = host.querySelector('.stage-slot canvas.composer-canvas');
     expect(canvas).not.toBeNull();
-    // El compositor configura el canvas a la resolución de salida (1920×1080).
+    // El compositor configura el canvas a la resolución de salida.
     expect((canvas as HTMLCanvasElement | null)?.width).toBe(1920);
     expect((canvas as HTMLCanvasElement | null)?.height).toBe(1080);
+    vi.unstubAllGlobals();
   });
 });

@@ -28,7 +28,10 @@ export function useScreenCapture(onEnded: () => void) {
 
     // Sustituir captura anterior si la había.
     if (streamRef.current) stopStream(streamRef.current);
-    videoRef.current?.pause();
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    }
 
     const video = document.createElement('video');
     video.muted = true;
