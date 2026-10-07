@@ -2,8 +2,13 @@
  * CanvasCompositor — compositor de vídeo en tiempo real.
  * Cada frame dibuja la región seleccionada de la pantalla y, sobre ella,
  * la webcam circular del profesor. El canvas se convierte en MediaStream
- * con canvas.captureStream(fps): el vídeo ya sale compuesto, sin
+ * con canvas.captureStream(): el vídeo ya sale compuesto, sin
  * renderizado posterior para el caso básico.
+ *
+ * El ritmo de dibujado lo marca un Web Worker (no requestAnimationFrame),
+ * porque rAF se detiene en pestañas ocultas y congelaría el vídeo justo
+ * cuando el profesor cambia a la pestaña que quiere explicar. La captura
+ * usa modo manual: cada tick dibuja y pide el frame con requestFrame().
  */
 import type { CameraPosition, CameraSettings, CropRect } from '../studio/types.ts';
 
@@ -38,8 +43,11 @@ function cornerXY(
 export class CanvasCompositor {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private raf = 0;
   private running = false;
+  private timerWorker: Worker | null = null;
+  private timerWorkerUrl: string | null = null;
+  private intervalId = 0;
+  private videoTrack: CanvasCaptureMediaStreamTrack | null = null;
   private screenVideo: HTMLVideoElement | null = null;
   private cameraVideo: HTMLVideoElement | null = null;
   private crop: CropRect = { x: 0, y: 0, w: 1, h: 1 };
@@ -78,33 +86,101 @@ export class CanvasCompositor {
   }
 
   setFps(fps: number): void {
+    if (fps === this.fps) return;
     this.fps = fps;
+    if (this.running) {
+      this.stopTimer();
+      this.startTimer();
+    }
   }
 
   start(): void {
     if (this.running) return;
     this.running = true;
-    this.raf = requestAnimationFrame(this.frame);
+    this.startTimer();
   }
 
   stop(): void {
     this.running = false;
-    cancelAnimationFrame(this.raf);
+    this.stopTimer();
+    this.videoTrack = null;
+  }
+
+  /**
+   * Arranca el temporizador de frames. Un Web Worker dedicado mantiene el
+   * ritmo aunque la pestaña pase a segundo plano (rAF se detendría y el
+   * vídeo grabado quedaría congelado en el último frame).
+   */
+  private startTimer(): void {
+    const intervalMs = Math.max(16, Math.round(1000 / this.fps));
+    if (typeof Worker !== 'undefined') {
+      try {
+        const src = `setInterval(function(){postMessage(0)},${intervalMs});`;
+        this.timerWorkerUrl = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+        const worker = new Worker(this.timerWorkerUrl);
+        worker.onmessage = () => this.tick();
+        this.timerWorker = worker;
+        return;
+      } catch {
+        // Sin Worker disponible: fallback a setInterval en el hilo principal.
+      }
+    }
+    this.intervalId = window.setInterval(() => this.tick(), intervalMs);
+  }
+
+  private stopTimer(): void {
+    if (this.timerWorker) {
+      this.timerWorker.terminate();
+      this.timerWorker = null;
+    }
+    if (this.timerWorkerUrl) {
+      URL.revokeObjectURL(this.timerWorkerUrl);
+      this.timerWorkerUrl = null;
+    }
+    if (this.intervalId) {
+      window.clearInterval(this.intervalId);
+      this.intervalId = 0;
+    }
   }
 
   /** Convierte el canvas en un MediaStream de vídeo. */
   capture(): MediaStream {
-    const stream = this.canvas.captureStream(this.fps);
+    // Modo manual (frameRate 0): el navegador solo captura un frame cuando se
+    // llama a requestFrame(), y lo hacemos en cada tick del worker. Así cada
+    // frame dibujado llega al MediaRecorder aunque la pestaña esté oculta.
+    let stream: MediaStream | null = null;
+    try {
+      const candidate = this.canvas.captureStream(0);
+      const track = candidate.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack | undefined;
+      if (track && typeof track.requestFrame === 'function') {
+        stream = candidate;
+        this.videoTrack = track;
+      }
+    } catch {
+      stream = null;
+    }
+    if (!stream) {
+      // Fallback: modo automático (el navegador captura al ritmo indicado).
+      stream = this.canvas.captureStream(this.fps);
+      this.videoTrack = null;
+    }
     if (stream.getVideoTracks().length === 0) {
       throw new Error('captureStream no produjo pista de vídeo');
     }
     return stream;
   }
 
-  private frame = (): void => {
+  private tick = (): void => {
     if (!this.running) return;
     this.draw();
-    this.raf = requestAnimationFrame(this.frame);
+    const track = this.videoTrack;
+    if (track) {
+      try {
+        track.requestFrame();
+      } catch {
+        // Si requestFrame falla puntualmente, se sigue dibujando.
+      }
+    }
   };
 
   private draw(): void {
