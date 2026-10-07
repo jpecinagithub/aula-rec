@@ -172,6 +172,11 @@ export class CanvasCompositor {
 
   private tick = (): void => {
     if (!this.running) return;
+    // Los <video> pueden quedar pausados (p. ej. Chrome los pausa al
+    // desmontarlos del DOM en las vistas previas del asistente). Se reanudan
+    // aquí: el tick lo reintenta hasta que reproducen.
+    this.ensurePlaying(this.screenVideo);
+    this.ensurePlaying(this.cameraVideo);
     this.draw();
     const track = this.videoTrack;
     if (track) {
@@ -182,6 +187,14 @@ export class CanvasCompositor {
       }
     }
   };
+
+  private ensurePlaying(v: HTMLVideoElement | null): void {
+    if (v && v.paused && !v.ended) {
+      void Promise.resolve(v.play()).catch(() => {
+        /* se reintenta en el próximo tick */
+      });
+    }
+  }
 
   private draw(): void {
     const { ctx, canvas } = this;

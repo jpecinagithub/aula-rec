@@ -86,4 +86,23 @@ describe('CanvasCompositor (temporizador de frames)', () => {
     vi.advanceTimersByTime(200);
     comp.stop();
   });
+
+  it('reanuda en cada tick los vídeos que quedaron pausados', () => {
+    const captureStream = vi.fn(() => ({ getVideoTracks: () => [{ kind: 'video' }] }));
+    const canvas = document.createElement('canvas');
+    canvas.captureStream = captureStream as unknown as typeof canvas.captureStream;
+
+    const comp = new CanvasCompositor(canvas, { width: 1280, height: 720, fps: 30 });
+    const video = document.createElement('video');
+    const playSpy = vi.spyOn(video, 'play').mockResolvedValue(undefined);
+    // Simula el vídeo pausado (Chrome lo pausa al desmontarlo del DOM).
+    Object.defineProperty(video, 'paused', { value: true, configurable: true });
+    comp.attachScreen(video);
+
+    comp.start();
+    vi.advanceTimersByTime(100);
+    comp.stop();
+    // El tick debe intentar reanudarlo.
+    expect(playSpy).toHaveBeenCalled();
+  });
 });
