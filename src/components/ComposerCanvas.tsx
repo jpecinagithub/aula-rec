@@ -15,7 +15,9 @@ export function ComposerCanvas() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     return attachCanvas(canvas);
-  }, [attachCanvas]);
+    // portalTarget: el canvas solo existe cuando hay un slot; al aparecer
+    // (o cambiar) el slot hay que (re)adjuntar el compositor.
+  }, [attachCanvas, portalTarget]);
 
   if (!portalTarget) return null;
   return createPortal(
