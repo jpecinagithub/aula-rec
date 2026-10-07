@@ -209,7 +209,7 @@ export function ResultScreen() {
           </span>
           <span className="brand-name">AulaRec</span>
         </div>
-        <button type="button" className="link-btn" onClick={s.resetAll}>
+        <button type="button" className="btn btn-secondary" onClick={s.resetAll}>
           Nueva grabación
         </button>
       </header>
