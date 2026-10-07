@@ -3,6 +3,7 @@ import { StageSlot } from './StageSlot.tsx';
 import { AudioMeter } from './AudioMeter.tsx';
 import { CropSelector } from './wizard/CropSelector.tsx';
 import { formatDims } from '../lib/format.ts';
+import { bitrateFor, estimateSizeMB, formatMB, recommendedMaxMinutes } from '../services/recorder.ts';
 import type { CameraPosition, QualityLevel } from '../studio/types.ts';
 
 const RESOLUTIONS = [
@@ -30,6 +31,9 @@ const POSITIONS: { id: CameraPosition; label: string }[] = [
 export function SetupRecorder() {
   const s = useStudio();
   const resValue = `${s.outWidth}x${s.outHeight}`;
+  const bitrate = bitrateFor(s.quality, s.outWidth, s.outHeight);
+  const mbPerMin = estimateSizeMB(bitrate, 1);
+  const maxMin = recommendedMaxMinutes(bitrate);
   const screenVideo = s.screenVideoRef.current;
   const zoneLabel =
     s.screenMode === 'full'
@@ -200,6 +204,9 @@ export function SetupRecorder() {
           </button>
           <p className="muted small center">
             Verás una cuenta atrás de 3 segundos antes de empezar.
+            <br />
+            Tamaño estimado: ~{formatMB(mbPerMin)} por minuto. Para grabaciones de más
+            de {maxMin} min se recomienda bajar la calidad o la resolución.
           </p>
         </div>
       </main>

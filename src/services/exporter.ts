@@ -62,8 +62,9 @@ let fetchFileFn: ((b: Blob) => Promise<unknown>) | null = null;
 
 async function getFfmpeg(onProgress: (r: number) => void): Promise<{
   writeFile: (name: string, data: unknown) => Promise<void>;
-  exec: (args: string[]) => Promise<void>;
+  exec: (args: string[]) => Promise<number>;
   readFile: (name: string) => Promise<unknown>;
+  deleteFile: (name: string) => Promise<void>;
 }> {
   if (ffmpegInstance) return ffmpegInstance as never;
   if (!ffmpegLoading) {
@@ -93,8 +94,11 @@ async function getFfmpeg(onProgress: (r: number) => void): Promise<{
         writeFile: async (name: string, data: unknown): Promise<void> => {
           await ffmpeg.writeFile(name, data as never);
         },
-        exec: (args: string[]) => ffmpeg.exec(args),
+        exec: (args: string[]): Promise<number> => ffmpeg.exec(args),
         readFile: (name: string) => ffmpeg.readFile(name) as Promise<unknown>,
+        deleteFile: async (name: string): Promise<void> => {
+          await ffmpeg.deleteFile(name);
+        },
       };
       ffmpegInstance = api;
       fetchFileFn = fetchFile as (b: Blob) => Promise<unknown>;
@@ -180,19 +184,32 @@ export async function exportVideo(req: ExportRequest): Promise<ExportResult> {
   }
 
   try {
-    await ff.exec(args);
-  } catch (e) {
-    console.warn('[AulaRec] ffmpeg exec falló:', e);
-    throw new ExportError('convert-failed', 'La conversión del vídeo falló.');
-  }
+    let code: number;
+    try {
+      code = await ff.exec(args);
+    } catch (e) {
+      console.warn('[AulaRec] ffmpeg exec falló:', e);
+      throw new ExportError('convert-failed', 'La conversión del vídeo falló.');
+    }
+    // ffmpeg devuelve 0 solo si la operación terminó correctamente.
+    if (code !== 0) {
+      console.warn('[AulaRec] ffmpeg terminó con código distinto de cero:', code);
+      throw new ExportError('convert-failed', 'La conversión del vídeo falló.');
+    }
 
-  const data = (await ff.readFile(outputName)) as Uint8Array;
-  // Copiamos a un ArrayBuffer propio: el buffer de ffmpeg puede reutilizarse.
-  const bytes = new Uint8Array(data.byteLength);
-  bytes.set(data);
-  const blob = new Blob([bytes.buffer as ArrayBuffer], {
-    type: outExt === 'mp4' ? 'video/mp4' : 'video/webm',
-  });
-  req.onProgress(1);
-  return { blob, ext: outExt, usedFfmpeg: true };
+    const data = (await ff.readFile(outputName)) as Uint8Array;
+    // Copiamos a un ArrayBuffer propio: el buffer de ffmpeg puede reutilizarse.
+    const bytes = new Uint8Array(data.byteLength);
+    bytes.set(data);
+    const blob = new Blob([bytes.buffer as ArrayBuffer], {
+      type: outExt === 'mp4' ? 'video/mp4' : 'video/webm',
+    });
+    req.onProgress(1);
+    return { blob, ext: outExt, usedFfmpeg: true };
+  } finally {
+    // Liberar la memoria virtual de ffmpeg tras cada exportación,
+    // también si falló: evita que crezca con vídeos largos.
+    await ff.deleteFile(inputName).catch(() => undefined);
+    await ff.deleteFile(outputName).catch(() => undefined);
+  }
 }

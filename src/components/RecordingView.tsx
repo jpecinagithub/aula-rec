@@ -1,6 +1,12 @@
 import { useStudio } from '../studio/StudioContext.tsx';
 import { StageSlot } from './StageSlot.tsx';
 import { formatClock } from '../lib/format.ts';
+import {
+  bitrateFor,
+  estimateSizeMB,
+  formatMB,
+  RECORDING_WARN_BYTES,
+} from '../services/recorder.ts';
 
 /** Barra flotante de controles durante la grabación. */
 function RecordingBar() {
@@ -35,7 +41,10 @@ function RecordingBar() {
 /** Vista durante la grabación: mini previsualización + barra flotante. */
 export function RecordingView() {
   const s = useStudio();
-  const longWarning = s.recordedMs > 30 * 60 * 1000;
+  const bitrate = bitrateFor(s.quality, s.outWidth, s.outHeight);
+  const estMB = estimateSizeMB(bitrate, s.recordedMs / 60000);
+  // Aviso consciente de la calidad: a 1080p el peligro llega mucho antes que a 480p.
+  const longWarning = estMB * 1e6 >= RECORDING_WARN_BYTES;
 
   return (
     <div className="page recording-page">
@@ -60,8 +69,8 @@ export function RecordingView() {
           </p>
           {longWarning && (
             <p className="warn-text" role="alert">
-              Llevas más de 30 minutos grabando. Las grabaciones muy largas consumen mucha
-              memoria: considera finalizar pronto para no perder el vídeo.
+              Llevas ~{formatMB(estMB)} estimados de vídeo. Las grabaciones muy largas
+              consumen mucha memoria: considera finalizar pronto para no perder el vídeo.
             </p>
           )}
           <button type="button" className="link-btn link-danger" onClick={s.cancelRecording}>

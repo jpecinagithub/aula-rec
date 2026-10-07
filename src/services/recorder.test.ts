@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bitrateFor, containerOfMime } from './recorder.ts';
+import { bitrateFor, containerOfMime, estimateSizeMB, formatMB, recommendedMaxMinutes } from './recorder.ts';
 
 describe('bitrateFor', () => {
   it('1080p alta ≈ 12 Mbps', () => {
@@ -20,5 +20,27 @@ describe('containerOfMime', () => {
     expect(containerOfMime('video/mp4;codecs="avc1.640028,mp4a.40.2"')).toBe('mp4');
     expect(containerOfMime('video/webm;codecs=vp9,opus')).toBe('webm');
     expect(containerOfMime('')).toBe('webm');
+  });
+});
+
+describe('estimación honesta de tamaño', () => {
+  it('10 min a 1080p alta ≈ 900 MB', () => {
+    const mb = estimateSizeMB(bitrateFor('high', 1920, 1080), 10);
+    expect(mb).toBeGreaterThan(800);
+    expect(mb).toBeLessThan(1000);
+  });
+  it('recomienda ~16 min como máximo a 1080p alta', () => {
+    const max = recommendedMaxMinutes(bitrateFor('high', 1920, 1080));
+    expect(max).toBeGreaterThanOrEqual(14);
+    expect(max).toBeLessThanOrEqual(18);
+  });
+  it('a menor calidad el máximo recomendado es mayor', () => {
+    const hi = recommendedMaxMinutes(bitrateFor('high', 1920, 1080));
+    const lo = recommendedMaxMinutes(bitrateFor('low', 854, 480));
+    expect(lo).toBeGreaterThan(hi);
+  });
+  it('formatMB muestra GB a partir de 1000 MB', () => {
+    expect(formatMB(90)).toBe('90 MB');
+    expect(formatMB(1500)).toBe('1,5 GB');
   });
 });

@@ -56,6 +56,28 @@ export function bitrateFor(quality: QualityLevel, width: number, height: number)
   return Math.min(20_000_000, Math.max(800_000, scaled));
 }
 
+/**
+ * Umbral honesto de memoria: por encima de ~1,5 GB estimados (fragmentos en
+ * RAM + Blob final + posible copia de ffmpeg) la grabación puede volverse
+ * inestable en muchos equipos.
+ */
+export const RECORDING_WARN_BYTES = 1.5e9;
+
+/** MB estimados para una duración dada al bitrate indicado. */
+export function estimateSizeMB(bitrateBps: number, minutes: number): number {
+  return ((bitrateBps / 8) * (minutes * 60)) / 1e6;
+}
+
+/** Minutos recomendados como máximo antes de avisar (para no superar el umbral). */
+export function recommendedMaxMinutes(bitrateBps: number): number {
+  return Math.max(1, Math.floor(RECORDING_WARN_BYTES / (bitrateBps / 8) / 60));
+}
+
+export function formatMB(mb: number): string {
+  if (mb >= 1000) return `${(mb / 1000).toFixed(1).replace('.', ',')} GB`;
+  return `${Math.round(mb)} MB`;
+}
+
 export function containerOfMime(mimeType: string): Container {
   return mimeType.includes('mp4') ? 'mp4' : 'webm';
 }
