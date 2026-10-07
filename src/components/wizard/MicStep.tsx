@@ -20,10 +20,9 @@ export function MicStep() {
   };
 
   const changeDevice = async (deviceId: string) => {
-    s.setMicDeviceId(deviceId);
     setBusy(true);
     try {
-      await s.requestMic();
+      await s.requestMic(deviceId);
     } catch {
       /* noop */
     } finally {

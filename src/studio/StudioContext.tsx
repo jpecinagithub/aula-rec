@@ -89,7 +89,7 @@ export interface StudioValue {
   requestCamera: (deviceId?: string) => Promise<void>;
   setCameraDeviceId: (id: string) => void;
   patchCamera: (p: Partial<CameraSettings>) => void;
-  requestMic: () => Promise<void>;
+  requestMic: (deviceId?: string) => Promise<void>;
   skipMic: () => void;
   setMicDeviceId: (id: string) => void;
   setMicVolume: (v: number) => void;
@@ -355,8 +355,17 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const requestScreen = useCallback(async () => {
     const stream = await screen.request(systemAudioRef.current);
     syncCompositorSources();
+    // Si ya existía mezclador (p. ej. al volver atrás y reseleccionar),
+    // reconstruirlo para que el audio del sistema sea el de la nueva captura.
+    if (mic.mixerRef.current) {
+      try {
+        await mic.request(micDeviceRef.current || undefined, stream);
+      } catch {
+        /* el error queda en mic.error */
+      }
+    }
     return stream;
-  }, [screen, syncCompositorSources]);
+  }, [screen, syncCompositorSources, mic]);
 
   const setScreenMode = useCallback(
     (m: ScreenMode) => {
@@ -400,10 +409,20 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     [compositorRef],
   );
 
-  const requestMic = useCallback(async () => {
-    await mic.request(micDeviceRef.current || undefined, screen.streamRef.current);
-    setMicSkipped(false);
-  }, [mic, screen]);
+  const requestMic = useCallback(
+    async (deviceId?: string) => {
+      // El id se usa directamente (no se lee del estado): setMicDeviceId es
+      // asíncrono y requestMic podría leer el dispositivo anterior.
+      const id = deviceId ?? micDeviceRef.current ?? undefined;
+      if (deviceId !== undefined) {
+        micDeviceRef.current = deviceId;
+        setMicDeviceId(deviceId);
+      }
+      await mic.request(id || undefined, screen.streamRef.current);
+      setMicSkipped(false);
+    },
+    [mic, screen],
+  );
 
   const skipMic = useCallback(() => setMicSkipped(true), []);
 
@@ -529,7 +548,13 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const audioTracks = mic.mixerRef.current?.output.getAudioTracks() ?? [];
+    // Rutas de audio:
+    // - micrófono (± sistema): sale del mezclador;
+    // - solo sistema (mic omitido): pistas directas de la captura;
+    // - sin audio: ninguna pista.
+    const mixerTracks = mic.mixerRef.current?.output.getAudioTracks() ?? [];
+    const sysTracks = systemAudio ? (screen.streamRef.current?.getAudioTracks() ?? []) : [];
+    const audioTracks = mixerTracks.length > 0 ? mixerTracks : sysTracks;
     const combined = new MediaStream([...videoStream.getVideoTracks(), ...audioTracks]);
     composedStreamRef.current = combined;
 
@@ -542,7 +567,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setRecordedMs(0);
     trackEvent('recording_started');
     setStatus('recording');
-  }, [compositorRef, mic, recorder, quality]);
+  }, [compositorRef, mic, recorder, quality, screen, systemAudio]);
 
   const pauseRecording = useCallback(() => {
     // Cerrar el segmento actual con reloj de pared antes de pausar.

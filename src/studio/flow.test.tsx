@@ -73,9 +73,9 @@ class MockMediaRecorder {
   ondataavailable: ((e: { data: Blob }) => void) | null = null;
   onstop: (() => void) | null = null;
   onerror: (() => void) | null = null;
-  stream: unknown;
+  stream: MockMediaStream;
   options?: { mimeType?: string };
-  constructor(stream: unknown, options?: { mimeType?: string }) {
+  constructor(stream: MockMediaStream, options?: { mimeType?: string }) {
     this.stream = stream;
     this.options = options;
     MockMediaRecorder.instances.push(this);
@@ -140,7 +140,8 @@ describe('flujo global de grabación', () => {
     MockMediaRecorder.instances.length = 0;
 
     const mediaDevices = {
-      getDisplayMedia: vi.fn(async () => fakeStream({ video: true, audio: false })),
+      // La pantalla compartida incluye audio del sistema en estos tests.
+      getDisplayMedia: vi.fn(async () => fakeStream({ video: true, audio: true })),
       getUserMedia: vi.fn(async (c: { video?: unknown; audio?: unknown }) =>
         c?.video ? fakeStream({ video: true }) : fakeStream({ video: false, audio: true }),
       ),
@@ -306,8 +307,7 @@ describe('flujo global de grabación', () => {
     expect(s().previewUrl).toBeNull();
   });
 
-  it('la duración usa reloj de pared: no se subestima con la pestaña oculta', async () => {
-    // Simula el throttling de Chrome en pestañas ocultas: el tiempo avanza
+  it('la duración usa reloj de pared: no se subestima con la pestaña oculta', async () => {    // Simula el throttling de Chrome en pestañas ocultas: el tiempo avanza
     // 33s pero el intervalo del cronómetro no dispara ni una vez.
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
@@ -325,5 +325,75 @@ describe('flujo global de grabación', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('graba solo con audio del sistema si se omite el micrófono', async () => {
+    const s = () => studio as StudioValue;
+    await act(async () => {
+      s().startWizard();
+    });
+    act(() => {
+      s().setSystemAudio(true);
+    });
+    await act(async () => {
+      await s().requestScreen();
+    });
+    act(() => {
+      s().setWizardStep(1);
+    });
+    await act(async () => {
+      await s().requestCamera();
+    });
+    act(() => {
+      s().setWizardStep(2);
+    });
+    // Omitir el micrófono: no se crea mezclador.
+    act(() => {
+      s().skipMic();
+    });
+    act(() => {
+      s().goToSetup();
+    });
+    act(() => {
+      s().startCountdown();
+    });
+    act(() => {
+      s().beginRecording();
+    });
+    expect(s().status).toBe('recording');
+    const rec = MockMediaRecorder.instances[0];
+    // El vídeo lleva la pista de audio del sistema aunque no haya micrófono.
+    expect(rec.stream.getVideoTracks()).toHaveLength(1);
+    expect(rec.stream.getAudioTracks()).toHaveLength(1);
+  });
+
+  it('requestMic usa el deviceId explícito sin leer estado obsoleto', async () => {
+    const s = () => studio as StudioValue;
+    await goToRecording();
+    const gum = (
+      window.navigator as unknown as { mediaDevices: { getUserMedia: ReturnType<typeof vi.fn> } }
+    ).mediaDevices.getUserMedia;
+    gum.mockClear();
+    await act(async () => {
+      await s().requestMic('nuevo-micro-id');
+    });
+    const lastArgs = gum.mock.calls[gum.mock.calls.length - 1][0] as {
+      audio: { deviceId?: { exact: string } };
+    };
+    expect(lastArgs.audio.deviceId?.exact).toBe('nuevo-micro-id');
+  });
+
+  it('reseleccionar la pantalla reconstruye el mezclador con la nueva captura', async () => {
+    const s = () => studio as StudioValue;
+    await goToRecording();
+    const gum = (
+      window.navigator as unknown as { mediaDevices: { getUserMedia: ReturnType<typeof vi.fn> } }
+    ).mediaDevices.getUserMedia;
+    const before = gum.mock.calls.length;
+    await act(async () => {
+      await s().requestScreen();
+    });
+    // El micrófono se vuelve a solicitar para mezclar el audio nuevo.
+    expect(gum.mock.calls.length).toBe(before + 1);
   });
 });
