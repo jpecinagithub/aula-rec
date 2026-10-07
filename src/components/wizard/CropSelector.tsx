@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useDialogBehavior } from '../../hooks/useDialogBehavior.ts';
 import { useStudio } from '../../studio/StudioContext.tsx';
 import { VideoElementView } from '../VideoElementView.tsx';
 import { clamp, formatDims } from '../../lib/format.ts';
@@ -49,6 +50,11 @@ interface Drag {
  */
 export function CropSelector({ onClose }: { onClose: () => void }) {
   const s = useStudio();
+  const close = () => {
+    s.setShowCropEditor(false);
+    onClose();
+  };
+  const dialogRef = useDialogBehavior(close);
   const stageRef = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<CropRect>(() =>
     s.screenMode === 'region' && (s.crop.w < 1 || s.crop.h < 1) ? s.crop : { x: 0.15, y: 0.15, w: 0.7, h: 0.7 },
@@ -58,14 +64,6 @@ export function CropSelector({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     selRef.current = sel;
   }, [sel]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
 
   const toNorm = (clientX: number, clientY: number) => {
     const r = stageRef.current?.getBoundingClientRect();
@@ -115,6 +113,28 @@ export function CropSelector({ onClose }: { onClose: () => void }) {
     dragRef.current = null;
   };
 
+  // Alternativa de teclado al puntero: flechas mueven la selección,
+  // Mayús+flechas la redimensionan desde la esquina inferior derecha.
+  const onCropKey = (e: React.KeyboardEvent) => {
+    const step = e.shiftKey ? 0.05 : 0.01;
+    const cur = selRef.current;
+    let next: CropRect | null = null;
+    if (!e.shiftKey) {
+      if (e.key === 'ArrowLeft') next = { ...cur, x: cur.x - step };
+      else if (e.key === 'ArrowRight') next = { ...cur, x: cur.x + step };
+      else if (e.key === 'ArrowUp') next = { ...cur, y: cur.y - step };
+      else if (e.key === 'ArrowDown') next = { ...cur, y: cur.y + step };
+    } else {
+      if (e.key === 'ArrowLeft') next = { ...cur, w: cur.w - step };
+      else if (e.key === 'ArrowRight') next = { ...cur, w: cur.w + step };
+      else if (e.key === 'ArrowUp') next = { ...cur, h: cur.h - step };
+      else if (e.key === 'ArrowDown') next = { ...cur, h: cur.h + step };
+    }
+    if (!next) return;
+    e.preventDefault();
+    setSel(clampRect(next));
+  };
+
   const video = s.screenVideoRef.current;
   const dims =
     video && video.videoWidth > 0
@@ -124,18 +144,24 @@ export function CropSelector({ onClose }: { onClose: () => void }) {
   const confirm = () => {
     s.setCrop(sel);
     s.setScreenMode('region');
-    s.setShowCropEditor(false);
-    onClose();
+    close();
   };
 
   const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
 
   return (
-    <div className="crop-overlay" role="dialog" aria-modal="true" aria-label="Seleccionar zona de grabación">
+    <div
+      ref={dialogRef}
+      className="crop-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Seleccionar zona de grabación"
+    >
       <div className="crop-topbar">
         <h2>Selecciona la zona a grabar</h2>
         <p className="muted">
-          Arrastra para crear la zona · muévela · cambia su tamaño con los tiradores
+          Arrastra para crear la zona · muévela · cambia su tamaño con los tiradores ·
+          o usa las flechas del teclado (Mayús+flechas para redimensionar)
           {dims && (
             <>
               {' '}· <strong>{dims}</strong>
@@ -147,6 +173,10 @@ export function CropSelector({ onClose }: { onClose: () => void }) {
       <div
         ref={stageRef}
         className="crop-stage"
+        tabIndex={0}
+        role="application"
+        aria-label="Zona seleccionada. Flechas: mover. Mayúsculas más flechas: cambiar tamaño."
+        onKeyDown={onCropKey}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -175,8 +205,7 @@ export function CropSelector({ onClose }: { onClose: () => void }) {
           onClick={() => {
             s.setCrop({ x: 0, y: 0, w: 1, h: 1 });
             s.setScreenMode('full');
-            s.setShowCropEditor(false);
-            onClose();
+            close();
           }}
         >
           Toda la pantalla
@@ -189,7 +218,7 @@ export function CropSelector({ onClose }: { onClose: () => void }) {
           Restablecer
         </button>
         <span className="crop-spacer" />
-        <button type="button" className="btn btn-ghost" onClick={() => { s.setShowCropEditor(false); onClose(); }}>
+        <button type="button" className="btn btn-ghost" onClick={close}>
           Cancelar
         </button>
         <button type="button" className="btn btn-primary" onClick={confirm}>

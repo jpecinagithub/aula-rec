@@ -8,7 +8,7 @@ const STEPS = ['Pantalla', 'Cámara', 'Micrófono'];
 
 /** Asistente de preparación: verificar visualmente todo antes de grabar. */
 export function PermissionsWizard() {
-  const { wizardStep, setWizardStep, notice, dismissNotice, showCropEditor } = useStudio();
+  const { wizardStep, setWizardStep, notice, dismissNotice, showCropEditor, resetAll } = useStudio();
 
   return (
     <div className="page">
@@ -19,6 +19,9 @@ export function PermissionsWizard() {
           </span>
           <span className="brand-name">AulaRec</span>
         </div>
+        <button type="button" className="link-btn" onClick={resetAll}>
+          Cancelar
+        </button>
       </header>
 
       <main className="wizard">
@@ -31,7 +34,8 @@ export function PermissionsWizard() {
               }
               aria-current={i === wizardStep ? 'step' : undefined}
             >
-              <span className="step-num" aria-hidden="true">{i + 1}</span> {label}
+              <span className="step-num" aria-hidden="true">{i + 1}</span>{' '}
+              <span className="step-label">{label}</span>
             </li>
           ))}
         </ol>

@@ -197,10 +197,11 @@ p { margin: 0 0 1em; }
 .wizard { max-width: 760px; margin: 0 auto; width: 100%; padding: 2rem clamp(1rem, 4vw, 2rem) 4rem; }
 .steps { list-style: none; display: flex; gap: 0.6rem; padding: 0; margin: 0 0 2rem; }
 .step {
-  flex: 1; display: flex; align-items: center; gap: 0.6em;
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.6em;
   background: var(--surface); border: 1px solid var(--line);
   padding: 0.8em 1em; border-radius: 12px; font-weight: 600; color: var(--muted);
 }
+.step-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .step-num {
   width: 1.8em; height: 1.8em; border-radius: 50%; background: #e2e8f0; color: var(--muted);
   display: inline-flex; align-items: center; justify-content: center; font-size: 0.9em; flex-shrink: 0;
@@ -422,6 +423,13 @@ input[type="range"] { accent-color: var(--brand); height: 2.2em; }
   .setup-preview { position: static; }
   .recording-main { grid-template-columns: 1fr; }
   .meta-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 520px) {
+  /* Los tres pasos del asistente caben sin desplazamiento horizontal. */
+  .steps { gap: 0.4rem; margin-bottom: 1.25rem; }
+  .step { padding: 0.55em 0.6em; font-size: 0.88em; gap: 0.45em; }
+  .step-num { width: 1.6em; height: 1.6em; }
 }
 
 @media (prefers-reduced-motion: reduce) {

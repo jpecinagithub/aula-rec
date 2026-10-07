@@ -1,12 +1,12 @@
+import { useDialogBehavior } from '../hooks/useDialogBehavior.ts';
+
 /** Explicación sencilla de privacidad. */
 export function PrivacyModal({ onClose }: { onClose: () => void }) {
+  const dialogRef = useDialogBehavior(onClose);
   return (
-    <div
-      className="modal-backdrop"
-      onClick={onClose}
-      role="presentation"
-    >
+    <div className="modal-backdrop" onClick={onClose} role="presentation">
       <div
+        ref={dialogRef}
         className="modal-card"
         role="dialog"
         aria-modal="true"
@@ -31,7 +31,7 @@ export function PrivacyModal({ onClose }: { onClose: () => void }) {
           La única información que sale de tu navegador son métricas anónimas de uso
           (por ejemplo, «grabación completada»), nunca contenido multimedia.
         </p>
-        <button type="button" className="btn btn-primary" onClick={onClose} autoFocus>
+        <button type="button" className="btn btn-primary" onClick={onClose}>
           Entendido
         </button>
       </div>

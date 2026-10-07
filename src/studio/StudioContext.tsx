@@ -153,8 +153,11 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const [outWidth, setOutWidth] = useState(1920);
   const [outHeight, setOutHeight] = useState(1080);
   const [fps, setFpsState] = useState(30);
-  const [quality, setQuality] = useState<QualityLevel>('high');
-  const [youtubeMode, setYoutubeModeState] = useState(true);
+  const [quality, setQualityState] = useState<QualityLevel>('high');
+  // "Optimizar para YouTube" es honesto: está marcado solo si los valores
+  // coinciden con el preset, salvo que el usuario lo haya desactivado a mano.
+  // null = automático (derivado de los valores); false = desactivado a mano.
+  const [youtubeOverride, setYoutubeOverride] = useState<boolean | null>(null);
 
   // — Grabación / resultado —
   const [recordedMs, setRecordedMs] = useState(0);
@@ -400,6 +403,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   const patchCamera = useCallback(
     (p: Partial<CameraSettings>) => {
+      // Solo la posición forma parte del preset de YouTube.
+      if (p.position !== undefined) setYoutubeOverride(null);
       setCamera((c) => {
         const next = { ...c, ...p };
         compositorRef.current?.setCameraSettings(next);
@@ -430,6 +435,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   const applyOutSize = useCallback(
     (w: number, h: number, f: number) => {
+      setYoutubeOverride(null);
       outSizeRef.current = { w, h, fps: f };
       setOutWidth(w);
       setOutHeight(h);
@@ -449,23 +455,43 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   const setFps = useCallback(
     (f: number) => {
+      setYoutubeOverride(null);
       setFpsState(f);
       applyOutSize(outSizeRef.current.w, outSizeRef.current.h, f);
     },
     [applyOutSize],
   );
 
+  const setQuality = useCallback((q: QualityLevel) => {
+    setYoutubeOverride(null);
+    setQualityState(q);
+  }, []);
+
+  // Valor honesto: marcado solo si la configuración coincide con el preset,
+  // salvo desactivación manual del usuario.
+  const youtubeMode =
+    youtubeOverride ??
+    (outWidth === 1920 &&
+      outHeight === 1080 &&
+      fps === 30 &&
+      quality === 'high' &&
+      camera.position === 'bottom-right');
+
   const setYoutubeMode = useCallback(
     (on: boolean) => {
-      setYoutubeModeState(on);
       if (on) {
-        setFpsState(30);
+        // Aplica el preset con los setters normales: dejan el override en
+        // automático y los valores coinciden, así el modo queda marcado.
         setQuality('high');
-        applyOutSize(1920, 1080, 30);
+        setFps(30);
+        setOutSize(1920, 1080);
         patchCamera({ position: 'bottom-right' });
+        setYoutubeOverride(null);
+      } else {
+        setYoutubeOverride(false);
       }
     },
-    [applyOutSize, patchCamera],
+    [patchCamera, setFps, setQuality, setOutSize],
   );
 
   /**

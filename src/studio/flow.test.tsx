@@ -396,4 +396,33 @@ describe('flujo global de grabación', () => {
     // El micrófono se vuelve a solicitar para mezclar el audio nuevo.
     expect(gum.mock.calls.length).toBe(before + 1);
   });
+
+  it('el modo YouTube es honesto: se apaga al personalizar y al desactivarlo a mano', async () => {
+    const s = () => studio as StudioValue;
+    await goToRecording();
+    // Los valores por defecto coinciden con el preset.
+    expect(s().youtubeMode).toBe(true);
+    // Cambiar la calidad lo desactiva solo.
+    act(() => {
+      s().setQuality('low');
+    });
+    expect(s().youtubeMode).toBe(false);
+    // Reactivarlo aplica el preset.
+    act(() => {
+      s().setYoutubeMode(true);
+    });
+    expect(s().youtubeMode).toBe(true);
+    expect(s().quality).toBe('high');
+    expect(s().fps).toBe(30);
+    // Desactivarlo a mano lo mantiene apagado aunque los valores coincidan.
+    act(() => {
+      s().setYoutubeMode(false);
+    });
+    expect(s().youtubeMode).toBe(false);
+    // Cambiar fps también lo desactiva (vuelve a automático).
+    act(() => {
+      s().setFps(60);
+    });
+    expect(s().youtubeMode).toBe(false);
+  });
 });
